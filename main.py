@@ -77,8 +77,8 @@ def get_case_number(email, password, fileno, date):
     case_number = None
 
     # Format the date
-    days_after = (datetime.datetime.strptime(date, '%m/%d/%Y') + datetime.timedelta(days=3)).strftime('%m/%d/%Y')
-    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=3)).strftime('%m/%d/%Y')
+    days_after = (datetime.datetime.strptime(date, '%m/%d/%Y') + datetime.timedelta(days=5)).strftime('%m/%d/%Y')
+    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=20)).strftime('%m/%d/%Y')
 
     # Initialize the WebDriver
     driver = webdriver.Chrome()
@@ -351,26 +351,20 @@ def main(input_file):
             date = datetime.datetime.strptime(date, '%m/%d/%Y').strftime('%m/%d/%Y')
             print(f"Diary Date: {date}")
 
-            try:
-                is_efiled, filing_error, case_number_exists, case_number = get_case_number(email, password, fileno, date)
+            is_efiled, filing_error, case_number_exists, case_number = get_case_number(email, password, fileno, date)
 
-                # Testing
-                # is_efiled = False
-                # filing_error = False
-                # case_number_exists = True
-                # case_number = '21-000000-CZ'
+            # Testing
+            # is_efiled = False
+            # filing_error = False
+            # case_number_exists = True
+            # case_number = '21-000000-CZ'
 
-                # Testing
-                print(f"is_efiled: {is_efiled}, filing_error: {filing_error}, case_number_exists: {case_number_exists}, case_number: {case_number}")
+            # Testing
+            print(f"is_efiled: {is_efiled}, filing_error: {filing_error}, case_number_exists: {case_number_exists}, case_number: {case_number}")
 
-                if is_efiled is None:
-                    # Handle the error case where the Chrome window closed prematurely
-                    print(f"Error occurred while checking if {fileno} is efiled. Skipping row.")
-                    continue
-
-            except TypeError:
-                # Handle the TypeError if check_if_efiled returns None
-                print(f"TypeError occurred for {fileno}. Skipping row.")
+            if is_efiled is None and filing_error is None and case_number_exists is None and case_number is None:
+                # Handle the error case where the Chrome window closed prematurely
+                print(f"Error occurred while checking if {fileno} is efiled. Skipping row.")
                 continue
 
             # If the case is rejected, color the row red and continue to the next row
@@ -383,6 +377,18 @@ def main(input_file):
                     rejected_fileno_list.append(fileno)
                 print(f"Row {row_index - 1} colored red.\n")
 
+            elif case_number_exists and case_number is not None:
+                print(f"Case number found for case {fileno}.")
+                for col_num in range(1, sheet.max_column + 1):
+                    cell = sheet.cell(row=row_index, column=col_num)
+                    cell.fill = green_fill
+                print(f"Row {row_index - 1} colored green.\n")
+
+                # Write the case number to the Excel file court case # column
+                court_case_cell = sheet.cell(row=row_index, column=11)
+                court_case_cell.value = case_number
+                workbook.save(input_file)
+
             # If the case is already e-filed, color the row blue and continue to the next row
             elif is_efiled:
                 print(f"Case {fileno} is efiled.")
@@ -392,25 +398,12 @@ def main(input_file):
                     workbook.save(input_file)
                 print(f"Row {row_index - 1} colored blue.\n")
 
-                if case_number_exists:
-                    print(f"Case number found for case {fileno}.")
-                    for col_num in range(1, sheet.max_column + 1):
-                        cell = sheet.cell(row=row_index, column=col_num)
-                        cell.fill = green_fill
-                        workbook.save(input_file)
-                    print(f"Row {row_index - 1} colored green.\n")
-
-                    # Write the case number to the Excel file court case # column
-                    court_case_cell = sheet.cell(row=row_index, column=10)
-                    court_case_cell.value = case_number
-                    workbook.save(input_file)
-
         if not rows_processed:
             print("All rows have been processed.")
             break
 
 if __name__ == '__main__':
     # Test file
-    input_file = r'C:\Users\Justin\Documents\Programming\Projects\output_test\mifile_case_number\Redacted S&C Diary Test.xlsx'
+    input_file = r'C:\Users\Justin\Documents\Programming\Projects\output_test\mifile_case_number\Redacted S&C Diary - Copy.xlsx'
 
     main(input_file)

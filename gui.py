@@ -10,7 +10,7 @@ from main import main
 class GUI:
     def __init__(self, master):
         self.master = master
-        self.master.title("Mifile Case Number")
+        self.master.title("MiFile Case Number")
 
         # Handle window close event
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
