@@ -329,6 +329,7 @@ def main(input_file):
                 for col_num in columns_to_color:
                     cell = sheet.cell(row=row_index, column=col_num)
                     cell.fill = green_fill
+                workbook.save(input_file)
                 continue
 
             fileno = str(int(row['file #']))
