@@ -64,21 +64,22 @@ def read_excel(input_file):
     return df
 
 def get_login_creds():
-    creds_path = r'C:\Users\Justin\Documents\Programming\Projects\mifile_creds\login.json'
+    creds_path = r'C:\Users\justi\Documents\Programming\Projects\mifile_creds\login.json'
 
     with open(creds_path, 'r') as file:
         creds = json.load(file)
         return creds['email'], creds['password']
 
 def get_case_number(email, password, fileno, date):
+    no_record = None
     is_efiled = None
     filing_error = None
     case_number_exists = None
     case_number = None
 
     # Format the date
-    days_after = (datetime.datetime.strptime(date, '%m/%d/%Y') + datetime.timedelta(days=5)).strftime('%m/%d/%Y')
-    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=20)).strftime('%m/%d/%Y')
+    days_after = (datetime.datetime.strptime(date, '%m/%d/%Y') + datetime.timedelta(days=3)).strftime('%m/%d/%Y')
+    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=30)).strftime('%m/%d/%Y')
 
     # Initialize the WebDriver
     driver = webdriver.Chrome()
@@ -192,6 +193,10 @@ def get_case_number(email, password, fileno, date):
                 no_records_element_xpath = "//td[@class='dataTables_empty' and contains(text(), 'No matching records found')]"
                 no_records_element_present = driver.find_elements(By.XPATH, no_records_element_xpath)
                 print(f'no_records element: {no_records_element_present}')
+                if no_records_element_present:
+                    print(f"No matching records found for {fileno}. Proceed with e-filing.")
+                    no_record = True
+                    return no_record, is_efiled, filing_error, case_number_exists, case_number
 
                 # Check for the presence of "Rejected" element
                 filed_element_xpath = "/html/body/main/div/div/filing-history/div[2]/filing-history-pane/div[2]/div/filing-history-filings/div/div/table/tbody/tr[1]"
@@ -210,7 +215,7 @@ def get_case_number(email, password, fileno, date):
                 if any("Payment" in text or "PAYMENT" in text or "Rejected" in text or "Refunded" in text for text in tr_elements_text):
                     print("Payment Rejected found.")
                     filing_error = True
-                    return is_efiled, filing_error, case_number_exists, case_number
+                    return no_record, is_efiled, filing_error, case_number_exists, case_number
 
                 elif any("Filed" in text or "Paid" in text for text in tr_elements_text):
                     print("Filed/Paid found.")
@@ -223,7 +228,7 @@ def get_case_number(email, password, fileno, date):
                 if no_records_element_present:
                     print(f"No matching records found for {fileno}. Proceed with e-filing.")
                     is_efiled = False
-                    return is_efiled, filing_error, case_number_exists, case_number
+                    return no_record, is_efiled, filing_error, case_number_exists, case_number
 
                 # Break the loop if the case is e-filed
                 if is_efiled:
@@ -233,7 +238,6 @@ def get_case_number(email, password, fileno, date):
                 print(f"Attempt {attempt + 1} of {max_attempts} failed. Retrying...")
                 driver.refresh()
                 attempt += 1
-
 
         if is_efiled:
             try:
@@ -253,19 +257,19 @@ def get_case_number(email, password, fileno, date):
                     print(f"Case Number: {case_number}")
                     case_number_exists = True
 
-                return True, filing_error, case_number_exists, case_number
+                return no_record, True, filing_error, case_number_exists, case_number
 
             except TimeoutException:
                 print("Timeout while trying to locate the case number element.")
-                return None, None, None, None
+                return None, None, None, None, None
 
     except ChromeWindowClosedException as e:
         print(f"ChromeWindowClosedException: {str(e)}")
-        return None, None, None, None  # Return None values to indicate an error/timeout
+        return None, None, None, None, None  # Return None values to indicate an error/timeout
     except WebDriverException as e:
         if not is_driver_active(driver):
             print(f"WebDriverException: {str(e)}")
-            return is_efiled, filing_error, case_number_exists, case_number
+            return no_record, is_efiled, filing_error, case_number_exists, case_number
         else:
             print(f"WebDriverException: {str(e)}")
     except Exception as e:
@@ -300,6 +304,7 @@ def main(input_file):
     base_fill = PatternFill(start_color="FFFFFFCC", end_color="00000000", fill_type="solid") # default fill color
     blank_fill = PatternFill(start_color="00000000", end_color="00000000", fill_type="solid") # default fill color
     white_fill = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid") # default fill color
+    grey_fill = PatternFill(start_color="FFD3D3D3", end_color="FFD3D3D3", fill_type="solid") # no_record fill color
     red_fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid") # filing_error is True
     blue_fill = PatternFill(start_color="FFADD9E6", end_color="FFADD9E6", fill_type="solid") # is_efiled is True - Efiled Successfully
     green_fill = PatternFill(start_color="FF98FA98", end_color="FF98FA98", fill_type="solid") # Extracted case number successfully
@@ -332,7 +337,7 @@ def main(input_file):
             print(f"Row {row_index - 1} fill color: {fill_color}")
 
             # Skip the row if it has been processed (blue, green, purple, orange, or red fill color)
-            if fill_color == blue_fill.start_color.rgb or fill_color == green_fill.start_color.rgb or fill_color == red_fill.start_color.rgb:
+            if fill_color == grey_fill or fill_color == blue_fill.start_color.rgb or fill_color == green_fill.start_color.rgb or fill_color == red_fill.start_color.rgb:
                 print(f"Skipping row {row_index - 1} due to fill color {fill_color}.\n")
                 continue
 
@@ -351,9 +356,10 @@ def main(input_file):
             date = datetime.datetime.strptime(date, '%m/%d/%Y').strftime('%m/%d/%Y')
             print(f"Diary Date: {date}")
 
-            is_efiled, filing_error, case_number_exists, case_number = get_case_number(email, password, fileno, date)
+            no_record, is_efiled, filing_error, case_number_exists, case_number = get_case_number(email, password, fileno, date)
 
             # Testing
+            # no_record = True
             # is_efiled = False
             # filing_error = False
             # case_number_exists = True
@@ -362,13 +368,22 @@ def main(input_file):
             # Testing
             print(f"is_efiled: {is_efiled}, filing_error: {filing_error}, case_number_exists: {case_number_exists}, case_number: {case_number}")
 
-            if is_efiled is None and filing_error is None and case_number_exists is None and case_number is None:
+            if no_record is None and is_efiled is None and filing_error is None and case_number_exists is None and case_number is None:
                 # Handle the error case where the Chrome window closed prematurely
                 print(f"Error occurred while checking if {fileno} is efiled. Skipping row.")
                 continue
 
+            # If no record is found, color the row grey and continue to the next row
+            if no_record:
+                print(f"No record found for case {fileno}.")
+                for col_num in range(1, sheet.max_column + 1):
+                    cell = sheet.cell(row=row_index, column=col_num)
+                    cell.fill = grey_fill
+                    workbook.save(input_file)
+                print(f"Row {row_index - 1} colored grey.\n")
+
             # If the case is rejected, color the row red and continue to the next row
-            if filing_error:
+            elif filing_error:
                 print(f"Case {fileno} was rejected.")
                 for col_num in range(1, sheet.max_column + 1):
                     cell = sheet.cell(row=row_index, column=col_num)
