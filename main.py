@@ -4,6 +4,7 @@ import json
 import time
 import signal
 import datetime
+import traceback
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
@@ -38,14 +39,8 @@ def read_excel(input_file):
     # Read the entire Excel file
     df = pd.read_excel(input_file)
 
-    # Print the original column names for debugging
-    print("Original columns:", df.columns)
-
     # Preprocess column names to strip spaces and make them lowercase
     df.columns = df.columns.str.strip().str.lower()
-
-    # Print the processed column names for debugging
-    print("Processed columns:", df.columns)
 
     # Define the required columns based on the new headers
     required_columns = [
@@ -64,7 +59,7 @@ def read_excel(input_file):
     return df
 
 def get_login_creds():
-    creds_path = r'C:\Users\justi\Documents\Programming\Projects\mifile_creds\login.json'
+    creds_path = r'C:\Users\Justin\Documents\Programming\Projects\mifile_creds\login.json'
 
     with open(creds_path, 'r') as file:
         creds = json.load(file)
@@ -79,10 +74,14 @@ def get_case_number(email, password, fileno, date):
 
     # Format the date
     days_after = (datetime.datetime.strptime(date, '%m/%d/%Y') + datetime.timedelta(days=3)).strftime('%m/%d/%Y')
-    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=30)).strftime('%m/%d/%Y')
+    days_prior = (datetime.datetime.strptime(date, '%m/%d/%Y') - datetime.timedelta(days=45)).strftime('%m/%d/%Y')
 
     # Initialize the WebDriver
-    driver = webdriver.Chrome()
+    try:
+        driver = webdriver.Chrome()
+    except WebDriverException as e:
+        print(f"Failed to initialize WebDriver: {str(e)}")
+        return None, None, None, None, None
 
     try:
         # Open the website
@@ -272,20 +271,16 @@ def get_case_number(email, password, fileno, date):
             return no_record, is_efiled, filing_error, case_number_exists, case_number
         else:
             print(f"WebDriverException: {str(e)}")
+            return None, None, None, None, None
     except Exception as e:
-        print(f"Error filling form for {fileno}: {str(e)}")
+        print(f"An unexpected error occurred: {str(e)}")
+        traceback.print_exc()
+        return None, None, None, None, None
     finally:
         driver.quit()  # Ensure the driver is closed
 
 # Order of operations
 def main(input_file):
-    rejected_fileno_list = []
-
-    # Get the date from the first 10 characters from the input_file filename not the full path
-    input_file_name = os.path.basename(input_file)
-    input_file_date = input_file_name[:10]
-    print(f"Input file date: {input_file_date}")
-
     # Get the login credentials
     email, password = get_login_creds()
 
@@ -301,19 +296,14 @@ def main(input_file):
         raise ValueError("Failed to access the active sheet. Please check the workbook.")
 
     # Define the fill for coloring cells
-    base_fill = PatternFill(start_color="FFFFFFCC", end_color="00000000", fill_type="solid") # default fill color
-    blank_fill = PatternFill(start_color="00000000", end_color="00000000", fill_type="solid") # default fill color
-    white_fill = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid") # default fill color
     grey_fill = PatternFill(start_color="FFD3D3D3", end_color="FFD3D3D3", fill_type="solid") # no_record fill color
     red_fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid") # filing_error is True
     blue_fill = PatternFill(start_color="FFADD9E6", end_color="FFADD9E6", fill_type="solid") # is_efiled is True - Efiled Successfully
     green_fill = PatternFill(start_color="FF98FA98", end_color="FF98FA98", fill_type="solid") # Extracted case number successfully
 
-    # Initialize a list to store the processing status of each row
-    row_processed = [False] * len(df)
-
     # Ensure that every row is processed until no default or orange rows are left
-    while True:
+    rows_processed = True
+    while rows_processed:
         rows_processed = False
 
         # Process each row in the DataFrame
@@ -323,99 +313,63 @@ def main(input_file):
             # Check the fill color of the first cell in the row
             first_cell = sheet.cell(row=row_index, column=1)
             fill_color = first_cell.fill.start_color.rgb
+            print(f"Row {row_index}: Fill Color: {fill_color}")
 
-            # Check if fill_color is a string before comparing
-            if isinstance(fill_color, str):
-                if fill_color == base_fill.start_color or blank_fill.start_color.rgb or fill_color == white_fill.start_color.rgb:
-                    row_processed[index] = False
-                else:
-                    row_processed[index] = True
-                    rows_processed = True  # Set the flag to True if any row is processed
-            else:
-                row_processed[index] = False
-
-            print(f"Row {row_index - 1} fill color: {fill_color}")
-
-            # Skip the row if it has been processed (blue, green, purple, orange, or red fill color)
-            if fill_color == grey_fill or fill_color == blue_fill.start_color.rgb or fill_color == green_fill.start_color.rgb or fill_color == red_fill.start_color.rgb:
-                print(f"Skipping row {row_index - 1} due to fill color {fill_color}.\n")
+            # Skip the row if it has been processed (blue, green, red, or grey fill color)
+            if fill_color in ["FFADD9E6", "FF98FA98", "FFFF0000", "FFD3D3D3"]:
                 continue
 
+            rows_processed = True  # Set the flag to True if any row is processed
+
+            # Define the range of columns to color (e.g., columns A to N)
+            columns_to_color = range(1, 15)  # Columns A to N (1 to 14)
+
             case_number_col_value = row['court case #']
-            print(f"Court Case #: {case_number_col_value}")
             if not (pd.isna(case_number_col_value) or case_number_col_value in ["NaN", "nan", None]):
-                print(f"Skipping row {row_index - 1} due to valid case number.")
+                for col_num in columns_to_color:
+                    cell = sheet.cell(row=row_index, column=col_num)
+                    cell.fill = green_fill
                 continue
 
             fileno = str(int(row['file #']))
             fileno = fileno[:6]
-            print(f"File #: {fileno}")
 
             date = str(row['diary date'])
             date = date[:10]
             date = datetime.datetime.strptime(date, '%m/%d/%Y').strftime('%m/%d/%Y')
-            print(f"Diary Date: {date}")
 
             no_record, is_efiled, filing_error, case_number_exists, case_number = get_case_number(email, password, fileno, date)
 
-            # Testing
-            # no_record = True
-            # is_efiled = False
-            # filing_error = False
-            # case_number_exists = True
-            # case_number = '21-000000-CZ'
-
-            # Testing
-            print(f"is_efiled: {is_efiled}, filing_error: {filing_error}, case_number_exists: {case_number_exists}, case_number: {case_number}")
-
             if no_record is None and is_efiled is None and filing_error is None and case_number_exists is None and case_number is None:
-                # Handle the error case where the Chrome window closed prematurely
-                print(f"Error occurred while checking if {fileno} is efiled. Skipping row.")
                 continue
 
-            # If no record is found, color the row grey and continue to the next row
             if no_record:
-                print(f"No record found for case {fileno}.")
-                for col_num in range(1, sheet.max_column + 1):
+                for col_num in columns_to_color:
                     cell = sheet.cell(row=row_index, column=col_num)
                     cell.fill = grey_fill
-                    workbook.save(input_file)
-                print(f"Row {row_index - 1} colored grey.\n")
+                workbook.save(input_file)
 
-            # If the case is rejected, color the row red and continue to the next row
             elif filing_error:
-                print(f"Case {fileno} was rejected.")
-                for col_num in range(1, sheet.max_column + 1):
+                for col_num in columns_to_color:
                     cell = sheet.cell(row=row_index, column=col_num)
                     cell.fill = red_fill
-                    workbook.save(input_file)
-                    rejected_fileno_list.append(fileno)
-                print(f"Row {row_index - 1} colored red.\n")
+                workbook.save(input_file)
 
             elif case_number_exists and case_number is not None:
-                print(f"Case number found for case {fileno}.")
-                for col_num in range(1, sheet.max_column + 1):
+                for col_num in columns_to_color:
                     cell = sheet.cell(row=row_index, column=col_num)
                     cell.fill = green_fill
-                print(f"Row {row_index - 1} colored green.\n")
-
-                # Write the case number to the Excel file court case # column
                 court_case_cell = sheet.cell(row=row_index, column=11)
                 court_case_cell.value = case_number
                 workbook.save(input_file)
 
-            # If the case is already e-filed, color the row blue and continue to the next row
             elif is_efiled:
-                print(f"Case {fileno} is efiled.")
-                for col_num in range(1, sheet.max_column + 1):  # Ensure to cover all columns
+                for col_num in columns_to_color:
                     cell = sheet.cell(row=row_index, column=col_num)
                     cell.fill = blue_fill
-                    workbook.save(input_file)
-                print(f"Row {row_index - 1} colored blue.\n")
+                workbook.save(input_file)
 
-        if not rows_processed:
-            print("All rows have been processed.")
-            break
+    print("All rows have been processed.")
 
 if __name__ == '__main__':
     # Test file
